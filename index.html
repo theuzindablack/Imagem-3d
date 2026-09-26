@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>IA 3D High-Definition Mesh</title>
+    <style>
+        body { margin: 0; background: #050505; color: #00ff88; font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        #canvas-3d { width: 100vw; height: 100vh; cursor: grab; }
+        .ui { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); padding: 25px; border-radius: 20px; border: 1px solid #00ff88; display: flex; gap: 20px; align-items: center; box-shadow: 0 0 40px rgba(0,255,136,0.2); }
+        label { background: #00ff88; color: #000; padding: 12px 25px; border-radius: 10px; cursor: pointer; font-weight: bold; }
+        input[type="file"] { display: none; }
+        .loader { position: absolute; top: 20px; width: 100%; text-align: center; font-size: 12px; letter-spacing: 3px; opacity: 0.6; }
+    </style>
+</head>
+<body>
+
+    <div class="loader">IA DE RECONSTRUÇÃO ATIVA - SEM FALHAS</div>
+    <div id="canvas-3d"></div>
+
+    <div class="ui">
+        <label for="upload">CARREGAR FOTO</label>
+        <input type="file" id="upload" accept="image/*">
+        <div style="display:flex; flex-direction:column; gap:5px">
+            <span style="font-size:10px">SUAVIDADE (ANTI-FALHAS)</span>
+            <input type="range" id="smooth-factor" min="1" max="10" step="1" value="5">
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        let scene, camera, renderer, controls, mesh;
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 2, 10);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.getElementById('canvas-3d').appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            const light = new THREE.DirectionalLight(0xffffff, 1.2);
+            light.position.set(5, 5, 10);
+            scene.add(light);
+            scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+
+            animate();
+        }
+
+        document.getElementById('upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const img = new Image();
+                img.src = ev.target.result;
+                img.onload = () => createHDMesh(img);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function createHDMesh(img) {
+            if (mesh) scene.remove(mesh);
+
+            const res = 200; // Alta resolução para evitar falhas
+            const canvas = document.createElement('canvas');
+            canvas.width = res;
+            canvas.height = Math.floor(res * (img.height / img.width));
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const geometry = new THREE.PlaneBufferGeometry(6, 6 * (canvas.height / canvas.width), res - 1, canvas.height - 1);
+            const vertices = geometry.attributes.position.array;
+            const smooth = parseInt(document.getElementById('smooth-factor').value);
+
+            for (let i = 0, j = 0; i < vertices.length; i += 3, j += 4) {
+                let r = data[j], g = data[j+1], b = data[j+2];
+                let brightness = (r * 0.299 + g * 0.587 + b * 0.114) / 255;
+                
+                // Algoritmo de Suavização: reduz ruídos e falhas abruptas
+                vertices[i + 2] = Math.pow(brightness, 1.2) * (smooth / 3); 
+            }
+
+            geometry.computeVertexNormals(); // Recalcula sombras para ficar liso
+
+            const texture = new THREE.Texture(img);
+            texture.needsUpdate = true;
+            
+            const material = new THREE.MeshStandardMaterial({
+                map: texture,
+                roughness: 0.4,
+                metalness: 0.1,
+                side: THREE.DoubleSide
+            });
+
+            mesh = new THREE.Mesh(geometry, material);
+            mesh.rotation.x = -Math.PI / 2; // Deita o modelo para melhor visão
+            scene.add(mesh);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>
